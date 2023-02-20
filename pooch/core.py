@@ -633,9 +633,10 @@ class Pooch:
 
         """
         self._assert_file_in_registry(fname)
+        urls = ["".join([url, fname]) for url in self.base_url]
         if fname in self.urls:
-            return [self.urls[fname]]
-        return ["".join([url, fname]) for url in self.base_url]
+            return urls.insert(0, self.urls[fname])
+        return urls
 
     def load_registry(self, fname):
         """
