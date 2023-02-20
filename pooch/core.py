@@ -702,21 +702,27 @@ class Pooch:
             This method is intended to be used only when the ``base_url`` is
             a DOI.
         """
+        errors = []
+        for url in self.base_url:
+            try:
+                # Ensure that this is indeed a DOI-based pooch
+                downloader = choose_downloader(url)
+                if not isinstance(downloader, DOIDownloader):
+                    raise ValueError(
+                        f"Invalid base_url '{url}': "
+                        + "Pooch.load_registry_from_doi is only implemented for DOIs"
+                    )
 
-        # Ensure that this is indeed a DOI-based pooch
-        downloader = choose_downloader(self.base_url)
-        if not isinstance(downloader, DOIDownloader):
-            raise ValueError(
-                f"Invalid base_url '{self.base_url}': "
-                + "Pooch.load_registry_from_doi is only implemented for DOIs"
-            )
+                # Create a repository instance
+                doi = url.replace("doi:", "")
+                repository = doi_to_repository(doi)
 
-        # Create a repository instance
-        doi = self.base_url.replace("doi:", "")
-        repository = doi_to_repository(doi)
-
-        # Call registry population for this repository
-        return repository.populate_registry(self)
+                # Call registry population for this repository
+                return repository.populate_registry(self)
+            except ValueError as e:
+                errors.append(str(e))
+        else:
+            raise RuntimeError(errors)
 
     def is_available(self, fname, downloader=None):
         """
