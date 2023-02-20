@@ -13,6 +13,7 @@ import contextlib
 from pathlib import Path
 import shlex
 import shutil
+from typing import Collection
 
 import requests
 import requests.exceptions
@@ -291,7 +292,7 @@ def create(
         we'll join the parts with the appropriate separator. The *version* will
         be appended to the end of this path. Use :func:`pooch.os_cache` for a
         sensible default.
-    base_url : str
+    base_url : str or Collection[str]
         Base URL for the remote data source. All requests will be made relative
         to this URL. The string should have a ``{version}`` formatting mark in
         it. We will call ``.format(version=version)`` on this string. If the
@@ -446,7 +447,7 @@ class Pooch:
     path : str
         The path to the local data storage folder. The path must exist in the
         file system.
-    base_url : str
+    base_url : str or Collection[str]
         Base URL for the remote data source. All requests will be made relative
         to this URL.
     registry : dict or None
@@ -485,6 +486,8 @@ class Pooch:
         allow_updates=True,
     ):
         self.path = path
+        if isinstance(base_url, str):
+            base_url = [base_url]
         self.base_url = base_url
         if registry is None:
             registry = dict()
@@ -561,7 +564,6 @@ class Pooch:
         # Create the local data directory if it doesn't already exist
         make_local_storage(str(self.abspath))
 
-        url = self.get_url(fname)
         full_path = self.abspath / fname
         known_hash = self.registry[fname]
         action, verb = download_action(full_path, known_hash)
@@ -572,25 +574,39 @@ class Pooch:
             )
 
         if action in ("download", "update"):
-            get_logger().info(
-                "%s file '%s' from '%s' to '%s'.",
-                verb,
-                fname,
-                url,
-                str(self.abspath),
-            )
+            errors = []
+            for url in self.get_urls(fname):
+                get_logger().info(
+                    "%s file '%s' from '%s' to '%s'.",
+                    verb,
+                    fname,
+                    url,
+                    str(self.abspath),
+                )
 
-            if downloader is None:
-                downloader = choose_downloader(url, progressbar=progressbar)
+                if downloader is None:
+                    downloader = choose_downloader(url, progressbar=progressbar)
 
-            stream_download(
-                url,
-                full_path,
-                known_hash,
-                downloader,
-                pooch=self,
-                retry_if_failed=self.retry_if_failed,
-            )
+                try:
+                    stream_download(
+                        url,
+                        full_path,
+                        known_hash,
+                        downloader,
+                        pooch=self,
+                        retry_if_failed=self.retry_if_failed,
+                    )
+                    break
+                except Exception as e:
+                    get_logger().warning(
+                        "Failed to %s file '%s' from '%s'.",
+                        action,
+                        fname,
+                        url,
+                    )
+                    errors.append(e)
+            else:
+                raise RuntimeError(errors)
 
         if processor is not None:
             return processor(str(full_path), action, self)
@@ -605,9 +621,9 @@ class Pooch:
         if fname not in self.registry:
             raise ValueError(f"File '{fname}' is not in the registry.")
 
-    def get_url(self, fname):
+    def get_urls(self, fname):
         """
-        Get the full URL to download a file in the registry.
+        Get the list of full URLs to download a file in the registry.
 
         Parameters
         ----------
@@ -617,7 +633,9 @@ class Pooch:
 
         """
         self._assert_file_in_registry(fname)
-        return self.urls.get(fname, "".join([self.base_url, fname]))
+        if fname in self.urls:
+            return [self.urls[fname]]
+        return ["".join([url, fname]) for url in self.base_url]
 
     def load_registry(self, fname):
         """
