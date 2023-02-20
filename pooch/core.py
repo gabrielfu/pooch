@@ -742,17 +742,22 @@ class Pooch:
 
         """
         self._assert_file_in_registry(fname)
-        url = self.get_url(fname)
-        if downloader is None:
-            downloader = choose_downloader(url)
-        try:
-            available = downloader(url, None, self, check_only=True)
-        except TypeError as error:
-            error_msg = (
-                f"Downloader '{str(downloader)}' does not support availability checks."
-            )
-            raise NotImplementedError(error_msg) from error
-        return available
+        errors = []
+        for url in self.get_urls(fname):
+            if downloader is None:
+                downloader = choose_downloader(url)
+            try:
+                available = downloader(url, None, self, check_only=True)
+                return available
+            except TypeError:
+                error_msg = (
+                    f"Downloader '{str(downloader)}' does not support availability checks."
+                )
+                errors.append(error_msg)
+            except Exception as e:
+                errors.append(str(e))
+        else:
+            raise RuntimeError(errors)
 
 
 def download_action(path, known_hash):
